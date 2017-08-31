@@ -30,46 +30,10 @@ import org.apache.hadoop.hive.serde2.SerDeException;
  * Constructor is empty because we do updates-in-place for performance reasons.
  * An immutable Scala case class would be nice but fear it would be s-l-o-w
  */
-public class CfLogStruct {
+public abstract class CfLogStruct {
 
-  // -------------------------------------------------------------------------------------------------------------------
-  // Mutable properties for this Hive struct
-  // -------------------------------------------------------------------------------------------------------------------
-
-  public String dt;
-  public String tm;
-  public String edgelocation;
-  public Integer bytessent; 
-  public String ipaddress;
-  public String operation;
-  public String domain;
-  public String object;
-  public Integer httpstatus;
-  public String referrer;
-  public String useragent;
-  public String querystring;
-  // var querymap: Map[String, String] TODO add this
-
-  // -------------------------------------------------------------------------------------------------------------------
-  // Static configuration
-  // -------------------------------------------------------------------------------------------------------------------
-
-  // Define the regular expression for extracting the fields
-  // Adapted from Amazon's own cloudfront-loganalyzer.tgz
-  private static final String w = "[\\s]+"; // Whitespace regex
-  private static final Pattern cfRegex = Pattern.compile("([\\S]+)"  // Date          / date
-                                                   + w + "([\\S]+)"  // Time          / time
-                                                   + w + "([\\S]+)"  // EdgeLocation  / x-edge-location
-                                                   + w + "([\\S]+)"  // BytesSent     / sc-bytes
-                                                   + w + "([\\S]+)"  // IPAddress     / c-ip
-                                                   + w + "([\\S]+)"  // Operation     / cs-method
-                                                   + w + "([\\S]+)"  // Domain        / cs(Host)
-                                                   + w + "([\\S]+)"  // Object        / cs-uri-stem
-                                                   + w + "([\\S]+)"  // HttpStatus    / sc-status
-                                                   + w + "([\\S]+)"  // Referrer      / cs(Referer)
-                                                   + w + "([\\S]+)"  // UserAgent     / cs(User Agent)
-                                                   + w + "(.+)");    // Querystring   / cs-uri-query
-
+	protected Pattern regex;
+	
   // -------------------------------------------------------------------------------------------------------------------
   // Deserialization logic
   // -------------------------------------------------------------------------------------------------------------------
@@ -90,29 +54,21 @@ public class CfLogStruct {
       return null; // Empty row will be discarded by Hive
     }
 
-    final Matcher m = cfRegex.matcher(row);
+    final Matcher m = regex.matcher(row);
     
     try {
       // Check our row is kosher
       m.matches();
-      this.dt = m.group(1);
-      this.tm = m.group(2); // No need for toHiveDate any more - CloudFront date format matches Hive's
-      this.edgelocation = m.group(3);
-      this.bytessent = toInt(m.group(4));
-      this.ipaddress = m.group(5);
-      this.operation = m.group(6);
-      this.domain = m.group(7);
-      this.object = m.group(8);
-      this.httpstatus = toInt(m.group(9));
-      this.referrer = nullifyHyphen(m.group(10));
-      this.useragent = m.group(11);
-      this.querystring = nullifyHyphen(m.group(12));    
+      
+      parseCore(m);    
     } catch (Exception e) {
       throw new SerDeException("Could not parse row: " + row, e);
     }
 
     return this; // Return the CfLogStruct
   }
+  
+  protected abstract void parseCore(Matcher m) throws Exception;
 
   // -------------------------------------------------------------------------------------------------------------------
   // Datatype conversions
@@ -125,7 +81,16 @@ public class CfLogStruct {
    * @param s The String to check
    * @return The Integer, or null if the String was "-" 
    */
-  private Integer toInt(String s) { return (s.compareTo("-") == 0) ? null : Integer.valueOf(s); }
+  protected Integer toInt(String s) { return (s.compareTo("-") == 0) ? null : Integer.valueOf(s); }
+  
+  /**
+   * Implicit conversion from String to Float. To deal with
+   * the fact that AWS uses a single "-"" for null.
+   *
+   * @param s The String to check
+   * @return The Float, or null if the String was "-" 
+   */
+  protected Float toFloat(String s) { return (s.compareTo("-") == 0) ? null : Float.valueOf(s); }
 
   /**
    * Explicit conversion to turn a "-" String into null.
@@ -135,5 +100,5 @@ public class CfLogStruct {
    * @param s The String to check
    * @return The original String, or null if the String was "-" 
    */
-  private String nullifyHyphen(String s) { return (s.compareTo("-") == 0) ? null : s; }
+  protected String nullifyHyphen(String s) { return (s.compareTo("-") == 0) ? null : s; }
 }
